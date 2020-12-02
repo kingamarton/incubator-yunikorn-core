@@ -19,10 +19,12 @@
 package resources
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -42,6 +44,10 @@ type Resource struct {
 
 // No unit defined here for better performance
 type Quantity int64
+
+func (q Quantity) string() string {
+	return strconv.FormatInt(int64(q), 10)
+}
 
 // Never update value of Zero
 var Zero = NewResource()
@@ -65,6 +71,16 @@ func NewResourceFromMap(m map[string]Quantity) *Resource {
 	return &Resource{Resources: m}
 }
 
+// Create a new resource from a string.
+// The string must be a json marshalled si.Resource.
+func NewResourceFromString(str string) (*Resource, error) {
+	var siRes *si.Resource
+	if err := json.Unmarshal([]byte(str), &siRes); err != nil {
+		return nil, err
+	}
+	return NewResourceFromProto(siRes), nil
+}
+
 // Create a new resource from the config map.
 // The config map must have been checked before being applied. The check here is just for safety so we do not crash.
 // TODO support size modifiers
@@ -81,17 +97,39 @@ func NewResourceFromConf(configMap map[string]string) (*Resource, error) {
 }
 
 func (r *Resource) String() string {
+	if r == nil {
+		return "nil resource"
+	}
 	return fmt.Sprintf("%v", r.Resources)
 }
 
+func (r *Resource) DAOString() string {
+	if r != nil {
+		return strings.Trim(r.String(), "map")
+	}
+	return "[]"
+}
+
 // Convert to a protobuf implementation
+// a nil resource passes back an empty proto object
 func (r *Resource) ToProto() *si.Resource {
 	proto := &si.Resource{}
 	proto.Resources = make(map[string]*si.Quantity)
-	for k, v := range r.Resources {
-		proto.Resources[k] = &si.Quantity{Value: int64(v)}
+	if r != nil {
+		for k, v := range r.Resources {
+			proto.Resources[k] = &si.Quantity{Value: int64(v)}
+		}
 	}
 	return proto
+}
+
+// convert to a configmap
+func (r *Resource) ToConf() map[string]string {
+	conf := make(map[string]string)
+	for k, v := range r.Resources {
+		conf[k] = v.string()
+	}
+	return conf
 }
 
 // Return a clone (copy) of the resource it is called on.
@@ -99,34 +137,42 @@ func (r *Resource) ToProto() *si.Resource {
 // NOTE: this is a clone not a sparse copy of the original.
 func (r *Resource) Clone() *Resource {
 	ret := NewResource()
-	for k, v := range r.Resources {
-		ret.Resources[k] = v
+	if r != nil {
+		for k, v := range r.Resources {
+			ret.Resources[k] = v
+		}
+		return ret
 	}
-	return ret
+	return nil
 }
 
 // Add additional resource to the base updating the base resource
 // Should be used by temporary computation only
-// A nil base resource is considered an empty resource
-// A nil addition is treated as a zero valued resource and leaves base unchanged
+// A nil base resource does not change
+// A nil passed in resource is treated as a zero valued resource and leaves base unchanged
 func (r *Resource) AddTo(add *Resource) {
-	if add == nil {
-		return
-	}
-	for k, v := range add.Resources {
-		r.Resources[k] = addVal(r.Resources[k], v)
+	if r != nil {
+		if add == nil {
+			return
+		}
+		for k, v := range add.Resources {
+			r.Resources[k] = addVal(r.Resources[k], v)
+		}
 	}
 }
 
 // Subtract from the resource the passed in resource by updating the resource it is called on.
-// A nil passed in resource is treated as a zero valued resource and leaves the called on resource unchanged.
 // Should be used by temporary computation only
+// A nil base resource does not change
+// A nil passed in resource is treated as a zero valued resource and leaves the base unchanged.
 func (r *Resource) SubFrom(sub *Resource) {
-	if sub == nil {
-		return
-	}
-	for k, v := range sub.Resources {
-		r.Resources[k] = subVal(r.Resources[k], v)
+	if r != nil {
+		if sub == nil {
+			return
+		}
+		for k, v := range sub.Resources {
+			r.Resources[k] = subVal(r.Resources[k], v)
+		}
 	}
 }
 
@@ -737,4 +783,60 @@ func IsZero(zero *Resource) bool {
 		}
 	}
 	return true
+}
+
+func (r *Resource) HasNegativeValue() bool {
+	for _, v := range r.Resources {
+		if v < 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func CalculateAbsUsedCapacity(capacity, used *Resource) *Resource {
+	if capacity == nil || used == nil {
+		log.Logger().Warn("Cannot calculate absolute capacity because of missing capacity or usage")
+		return NewResource()
+	}
+	absResource := make(map[string]Quantity)
+	missingResources := make([]string, 0)
+	for resourceName, availableResource := range capacity.Resources {
+		var absResValue int64
+		if usedResource, ok := used.Resources[resourceName]; ok {
+			if availableResource < usedResource {
+				log.Logger().Warn("Higher usage than max capacity",
+					zap.String("resource", resourceName),
+					zap.Int64("capacity", int64(availableResource)),
+					zap.Int64("usage", int64(usedResource)))
+			}
+			div := float64(usedResource) / float64(availableResource)
+			absResValue = int64(div * 100)
+			// protect against positive integer overflow
+			if absResValue < 0 && div > 0 {
+				log.Logger().Warn("Absolute resource value result positive overflow",
+					zap.String("resource", resourceName),
+					zap.Int64("capacity", int64(availableResource)),
+					zap.Int64("usage", int64(usedResource)))
+				absResValue = math.MaxInt64
+			}
+			// protect against negative integer overflow
+			if absResValue > 0 && div < 0 {
+				log.Logger().Warn("Absolute resource value result negative overflow",
+					zap.String("resource", resourceName),
+					zap.Int64("capacity", int64(availableResource)),
+					zap.Int64("usage", int64(usedResource)))
+				absResValue = math.MinInt64
+			}
+		} else {
+			missingResources = append(missingResources, resourceName)
+			continue
+		}
+		absResource[resourceName] = Quantity(absResValue)
+	}
+	if len(missingResources) > 0 {
+		log.Logger().Debug("Cannot calculate absolute usage for resources because of missing usage information",
+			zap.String("resource name", strings.Join(missingResources, ",")))
+	}
+	return NewResourceFromMap(absResource)
 }

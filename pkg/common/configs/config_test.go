@@ -23,10 +23,15 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path"
+	"strings"
 	"testing"
+
+	"gotest.tools/assert"
 
 	"gopkg.in/yaml.v2"
 )
+
+var emptySum = [32]byte{}
 
 func TestConfigSerdeQueues(t *testing.T) {
 	conf := SchedulerConfig{
@@ -119,7 +124,7 @@ func TestConfigSerdeQueues(t *testing.T) {
 				},
 			},
 		},
-		Checksum: []byte(""),
+		Checksum: emptySum,
 	}
 
 	SerdeTest(t, conf, "QueueConfig")
@@ -184,7 +189,7 @@ func TestConfigSerdeLimits(t *testing.T) {
 				},
 			},
 		},
-		Checksum: []byte(""),
+		Checksum: emptySum,
 	}
 
 	SerdeTest(t, conf, "LimitConfig")
@@ -193,10 +198,7 @@ func TestConfigSerdeLimits(t *testing.T) {
 func SerdeTest(t *testing.T, conf SchedulerConfig, description string) {
 	// convert the object to yaml
 	yamlConf, err := yaml.Marshal(&conf)
-	if err != nil {
-		t.Fatalf("error marshalling yaml config '%s': %v", description, err)
-	}
-	t.Logf(string(yamlConf))
+	assert.NilError(t, err, "error marshalling yaml config '%s'", description)
 
 	// unmarshal what we have just created
 	newConf := SchedulerConfig{}
@@ -207,15 +209,10 @@ func SerdeTest(t *testing.T, conf SchedulerConfig, description string) {
 
 	// marshal as json and we still should get the same objects
 	jsonConf, err := json.Marshal(conf)
-	t.Logf(string(jsonConf))
-	if err != nil {
-		t.Fatalf("error marshalling json from config '%s': %v", description, err)
-	}
+	assert.NilError(t, err, "error marshalling yaml config '%s'", description)
 
 	jsonConf2, err := json.Marshal(newConf)
-	if err != nil {
-		t.Fatalf("error marshalling json config from serde yaml config '%s': %v", description, err)
-	}
+	assert.NilError(t, err, "error marshalling json config from serde yaml config '%s'", description)
 
 	if string(jsonConf) != string(jsonConf2) {
 		t.Errorf("json marshaled strings differ for '%s':", description)
@@ -285,9 +282,7 @@ partitions:
 
 	// create the config and process it
 	conf, err := CreateConfig(data)
-	if err != nil {
-		t.Fatalf("loading failed with error: %v", err)
-	}
+	assert.NilError(t, err, "loading failed with error")
 
 	if conf.Partitions[0].Name != "default" {
 		t.Errorf("default partition not found in config: %v", conf)
@@ -305,7 +300,7 @@ partitions:
 
 	// root.production queue
 	if conf.Partitions[0].Queues[0].Queues[0].Resources.Guaranteed["memory"] != "1000" {
-		t.Errorf("failed to load guranteed resource from file %v", conf)
+		t.Errorf("failed to load guaranteed resource from file %v", conf)
 	}
 
 	// root.test queue
@@ -407,6 +402,21 @@ partitions:
 	if err == nil {
 		t.Errorf("multiple default partitions parsing should have failed: %v", conf)
 	}
+}
+
+func TestParseQueue(t *testing.T) {
+	data := `
+partitions:
+  - name: default
+    queues:
+      - name: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_
+`
+	// This tests two things:
+	// - every allowed char in the regexp
+	// - max length of the name
+	// there are 64 different allowed characters in the regexp and the max length is 64 too
+	_, err := CreateConfig(data)
+	assert.NilError(t, err, "every allowed char queue name should not have failed")
 }
 
 func TestParseQueueFail(t *testing.T) {
@@ -576,9 +586,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err := CreateConfig(data)
-	if err != nil {
-		t.Fatalf("should expect no error %v", err)
-	}
+	assert.NilError(t, err, "should expect no error")
 
 	if !conf.Partitions[0].Preemption.Enabled {
 		t.Error("default partition's preemption should be enabled.")
@@ -609,9 +617,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err := CreateConfig(data)
-	if err != nil {
-		t.Fatalf("rule parsing should not have failed: %v", err)
-	}
+	assert.NilError(t, err, "rule parsing should not have failed")
 	rule := conf.Partitions[0].PlacementRules[0]
 	if !rule.Create {
 		t.Errorf("Create flag is not set correctly expected 'true' got 'false'")
@@ -644,9 +650,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err = CreateConfig(data)
-	if err != nil {
-		t.Fatalf("rule parsing should not have failed: %v", err)
-	}
+	assert.NilError(t, err, "rule parsing should not have failed")
 	rule = conf.Partitions[0].PlacementRules[0]
 	if rule.Create {
 		t.Errorf("Create flag is not set correctly expected 'false' got 'true'")
@@ -682,9 +686,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err = CreateConfig(data)
-	if err != nil {
-		t.Fatalf("rule parsing should not have failed: %v", err)
-	}
+	assert.NilError(t, err, "rule parsing should not have failed")
 	if len(conf.Partitions[0].PlacementRules) != 3 {
 		t.Errorf("incorrect number of rules returned expected 3 got: %d", len(conf.Partitions[0].PlacementRules))
 	}
@@ -702,9 +704,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err = CreateConfig(data)
-	if err != nil {
-		t.Fatalf("rule parsing should not have failed: %v", err)
-	}
+	assert.NilError(t, err, "rule parsing should not have failed")
 	if len(conf.Partitions[0].PlacementRules) != 2 {
 		t.Errorf("incorrect number of rules returned expected 2 got: %d", len(conf.Partitions[0].PlacementRules))
 	}
@@ -844,9 +844,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err := CreateConfig(data)
-	if err != nil {
-		t.Fatalf("partition user parsing should not have failed: %v", conf)
-	}
+	assert.NilError(t, err, "partition user parsing should not have failed")
 	// gone through validation: 1 top level queues
 	if len(conf.Partitions[0].Queues) != 1 {
 		t.Errorf("failed to load queue %v", conf)
@@ -918,9 +916,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err := CreateConfig(data)
-	if err != nil {
-		t.Fatalf("config parsing should not have failed: %v", conf)
-	}
+	assert.NilError(t, err, "config parsing should not have failed")
 	// gone through validation: 1 top level queues
 	if len(conf.Partitions[0].Queues) != 1 {
 		t.Errorf("failed to load queue from config: %v", conf)
@@ -988,9 +984,7 @@ partitions:
 `
 	// validate the config and check after the update
 	conf, err := CreateConfig(data)
-	if err != nil {
-		t.Fatalf("config parsing should not have failed: %v", conf)
-	}
+	assert.NilError(t, err, "config parsing should not have failed")
 	// gone through validation: 1 top level queues
 	if len(conf.Partitions[0].Queues) != 1 && len(conf.Partitions[0].Queues[0].Limits) != 0 {
 		t.Errorf("failed to load queues from config: %v", conf)
@@ -1144,5 +1138,72 @@ partitions:
 	conf, err = CreateConfig(data)
 	if err == nil {
 		t.Errorf("limit parsing should have failed group @: %v", conf)
+	}
+}
+
+func TestLoadSchedulerConfigFromByteArray(t *testing.T) {
+	validConf := `
+partitions:
+  -
+    name: default
+    placementrules:
+      - name: tag
+        value: namespace
+        create: true
+    queues:
+      - name: root
+        submitacl: '*'
+        properties:
+          application.sort.policy: stateaware
+          sample: value2
+`
+	invalidConf := `
+partitions:
+  -
+    name: default
+    placementrules:
+      - name: tag
+        value: namespace
+        create: true
+    queues:
+      - name: root
+        submitacl: '*'
+        sample: value1
+`
+	mixedSpacesConf := `
+partitions:
+  -
+    name: default
+    placementrules:
+      - name: tag
+        value: namespace
+        create: true
+    queues:
+      - name: root
+        submitacl: '*'
+        properties:
+            application.sort.policy: stateaware
+`
+	testCases := []struct {
+		name          string
+		config        string
+		errorExpected bool
+	}{
+		{"Valid config", validConf, false},
+		{"Invalid checksum", invalidConf, true},
+		{"Mixed space", mixedSpacesConf, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			schedulerConf, err := LoadSchedulerConfigFromByteArray([]byte(tc.config))
+			if tc.errorExpected {
+				assert.Assert(t, err != nil, "Error is expected")
+				assert.Assert(t, strings.Contains(err.Error(), "unmarshal error"), "Unexpected error message")
+			} else {
+				assert.NilError(t, err, "No error is expected")
+				assert.Assert(t, schedulerConf != nil, "Returned conf should not be nil")
+			}
+		})
 	}
 }

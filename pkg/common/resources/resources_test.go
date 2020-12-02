@@ -49,6 +49,19 @@ func TestNewResourceFromConf(t *testing.T) {
 	}
 }
 
+func TestCloneNil(t *testing.T) {
+	// make sure we're nil safe IDE will complain about the non nil check
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("panic on nil resource in clone test")
+		}
+	}()
+	var empty *Resource
+	if empty.Clone() != nil {
+		t.Fatalf("clone of nil resource should be nil")
+	}
+}
+
 func TestClone(t *testing.T) {
 	// resource without any resource mappings
 	original := NewResourceFromMap(map[string]Quantity{})
@@ -450,6 +463,20 @@ func TestComponentWiseMax(t *testing.T) {
 	}
 }
 
+func TestToProtoNil(t *testing.T) {
+	// make sure we're nil safe IDE will complain about the non nil check
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("panic on nil resource in proto test")
+		}
+	}()
+	var empty *Resource
+	proto := empty.ToProto()
+	if proto == nil || len(proto.Resources) != 0 {
+		t.Fatalf("to proto on nil resource should have given non nil object")
+	}
+}
+
 func TestResourceProto(t *testing.T) {
 	empty := NewResourceFromProto(nil)
 	if empty == nil || len(empty.Resources) != 0 {
@@ -588,6 +615,17 @@ func TestMultiply(t *testing.T) {
 	}
 }
 
+func TestMultiplyToNil(t *testing.T) {
+	// make sure we're nil safe IDE will complain about the non nil check
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("panic on nil resource in multiplyto test")
+		}
+	}()
+	var empty *Resource
+	empty.MultiplyTo(0)
+}
+
 func TestMultiplyTo(t *testing.T) {
 	// simple case empty resource
 	base := NewResourceFromMap(map[string]Quantity{})
@@ -723,6 +761,17 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+func TestAddToNil(t *testing.T) {
+	// make sure we're nil safe IDE will complain about the non nil check
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("panic on nil resource in addto test")
+		}
+	}()
+	var empty *Resource
+	empty.AddTo(NewResource())
+}
+
 func TestAddTo(t *testing.T) {
 	// simple case (nil checks) & empty resources
 	base := NewResource()
@@ -778,6 +827,17 @@ func TestSub(t *testing.T) {
 	if !reflect.DeepEqual(res3.Resources, expected) {
 		t.Errorf("Add failed expected %v, actual %v", expected, res3.Resources)
 	}
+}
+
+func TestSubFromNil(t *testing.T) {
+	// make sure we're nil safe IDE will complain about the non nil check
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("panic on nil resource in subfrom test")
+		}
+	}()
+	var empty *Resource
+	empty.SubFrom(NewResource())
 }
 
 func TestSubFrom(t *testing.T) {
@@ -1090,7 +1150,7 @@ func TestFairnessRatio(t *testing.T) {
 	left = &Resource{Resources: map[string]Quantity{"first": 1}}
 	fairRatio = FairnessRatio(left, right, total)
 	if !math.IsInf(fairRatio, 1) {
-		t.Errorf("positve left, zero right resources should return +Inf got: %f", fairRatio)
+		t.Errorf("positive left, zero right resources should return +Inf got: %f", fairRatio)
 	}
 	left = &Resource{Resources: map[string]Quantity{"first": -1}}
 	fairRatio = FairnessRatio(left, right, total)
@@ -1189,8 +1249,13 @@ func TestCompUsage(t *testing.T) {
 	}
 }
 
-func TestFitInScore(t *testing.T) {
-	// simple case (nil checks)
+func TestFitInScoreNil(t *testing.T) {
+	// make sure we're nil safe IDE will complain about the non nil check
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("panic on nil resource in fitinscore test")
+		}
+	}()
 	var empty *Resource
 	// nil dereference
 	if empty.FitInScore(nil) != 0 {
@@ -1200,7 +1265,11 @@ func TestFitInScore(t *testing.T) {
 	if empty.FitInScore(fit) != 1 {
 		t.Error("FitInScore on nil receiver failed")
 	}
-	empty = NewResource()
+}
+
+func TestFitInScore(t *testing.T) {
+	fit := NewResourceFromMap(map[string]Quantity{"first": 0})
+	empty := NewResource()
 	assert.Equal(t, empty.FitInScore(nil), 0.0, "FitInScore with nil input failed")
 	// zero checks
 	assert.Equal(t, empty.FitInScore(Zero), 0.0, "FitInScore on zero resource failed")
@@ -1244,4 +1313,242 @@ func TestFitInScore(t *testing.T) {
 	res = NewResourceFromMap(map[string]Quantity{"first": -10, "second": -10})
 	fit = NewResourceFromMap(map[string]Quantity{"first": 1, "second": 1})
 	assert.Equal(t, res.FitInScore(fit), 2.0, "FitInScore on resource with multiple negative quantities failed")
+}
+
+func TestCalculateAbsUsedCapacity(t *testing.T) {
+	zeroResource := NewResourceFromMap(map[string]Quantity{"memory": 0, "vcores": 0})
+	resourceSet := NewResourceFromMap(map[string]Quantity{"memory": 2048, "vcores": 3})
+	usageSet := NewResourceFromMap(map[string]Quantity{"memory": 1024, "vcores": 1})
+	partialResource := NewResourceFromMap(map[string]Quantity{"memory": 1024})
+	emptyResource := NewResource()
+
+	tests := map[string]struct {
+		capacity, used, expected *Resource
+	}{
+		"nil resource, nil usage": {
+			expected: emptyResource,
+		},
+		"zero resource, nil usage": {
+			capacity: zeroResource,
+			expected: emptyResource,
+		},
+		"resource set, nil usage": {
+			capacity: resourceSet,
+			expected: emptyResource,
+		},
+		"resource set, zero usage": {
+			capacity: resourceSet,
+			used:     zeroResource,
+			expected: zeroResource,
+		},
+		"resource set, usage set": {
+			capacity: resourceSet,
+			used:     usageSet,
+			expected: NewResourceFromMap(map[string]Quantity{"memory": 50, "vcores": 33}),
+		},
+		"partial resource set, usage set": {
+			capacity: partialResource,
+			used:     usageSet,
+			expected: NewResourceFromMap(map[string]Quantity{"memory": 100}),
+		},
+		"resource set, partial usage set": {
+			capacity: resourceSet,
+			used:     partialResource,
+			expected: NewResourceFromMap(map[string]Quantity{"memory": 50}),
+		},
+		"positive overflow": {
+			capacity: NewResourceFromMap(map[string]Quantity{"memory": 10}),
+			used:     NewResourceFromMap(map[string]Quantity{"memory": math.MaxInt64}),
+			expected: NewResourceFromMap(map[string]Quantity{"memory": math.MaxInt64}),
+		},
+		"negative overflow": {
+			capacity: NewResourceFromMap(map[string]Quantity{"memory": 10}),
+			used:     NewResourceFromMap(map[string]Quantity{"memory": math.MinInt64}),
+			expected: NewResourceFromMap(map[string]Quantity{"memory": math.MinInt64}),
+		},
+		"zero resource, non zero used": {
+			capacity: zeroResource,
+			used:     usageSet,
+			expected: NewResourceFromMap(map[string]Quantity{"memory": math.MaxInt64, "vcores": math.MaxInt64}),
+		},
+	}
+	for _, test := range tests {
+		absCapacity := CalculateAbsUsedCapacity(test.capacity, test.used)
+		assert.DeepEqual(t, test.expected, absCapacity)
+	}
+}
+
+func TestNewResourceFromString(t *testing.T) {
+	tests := map[string]struct {
+		jsonRes  string
+		fail     bool
+		expected *Resource
+	}{
+		"empty string": {
+			jsonRes:  "",
+			fail:     false,
+			expected: nil,
+		},
+		"empty json": {
+			jsonRes:  "{\"resources\":{}}",
+			fail:     false,
+			expected: NewResource(),
+		},
+		"not a map": {
+			jsonRes:  "{\"resources\":{error}}",
+			fail:     true,
+			expected: nil,
+		},
+		"illegal json": {
+			jsonRes:  "{\"resources\":{\"missing curly bracket\":{\"value\":5}}",
+			fail:     true,
+			expected: nil,
+		},
+		"illegal value": {
+			jsonRes:  "{\"resources\":{\"invalid\":{\"value\":\"error\"}}}",
+			fail:     true,
+			expected: nil,
+		},
+		"simple": {
+			jsonRes:  "{\"resources\":{\"valid\":{\"value\":10}}}",
+			fail:     false,
+			expected: NewResourceFromMap(map[string]Quantity{"valid": 10}),
+		},
+		"double": {
+			jsonRes:  "{\"resources\":{\"valid\":{\"value\":10}, \"other\":{\"value\":5}}}",
+			fail:     false,
+			expected: NewResourceFromMap(map[string]Quantity{"valid": 10, "other": 5}),
+		},
+		"same twice": {
+			jsonRes:  "{\"resources\":{\"negative\":{\"value\":10}, \"negative\":{\"value\":-10}}}",
+			fail:     false,
+			expected: NewResourceFromMap(map[string]Quantity{"negative": -10}),
+		},
+	}
+	for name, test := range tests {
+		fromJSON, err := NewResourceFromString(test.jsonRes)
+		if test.fail {
+			if err == nil || fromJSON != nil {
+				t.Errorf("expected error and nil resource for test: %s got results", name)
+			}
+		} else {
+			if test.expected == nil && fromJSON != nil {
+				t.Errorf("expected nil resource for test: %s, got: %s", name, fromJSON.String())
+			} else if !Equals(fromJSON, test.expected) {
+				t.Errorf("returned resource did not match expected resource for test: %s, expected %s, got: %v", name, test.expected, fromJSON)
+			}
+		}
+	}
+}
+
+func TestDAOStringNil(t *testing.T) {
+	// make sure we're nil safe IDE will complain about the non nil check
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("panic on nil resource in daostring test")
+		}
+	}()
+	var empty *Resource
+	assert.Equal(t, empty.DAOString(), "[]", "expected empty brackets on nil")
+}
+
+func TestDAOString(t *testing.T) {
+	tests := map[string]struct {
+		dao string
+		res *Resource
+	}{
+		"empty resource": {
+			dao: "[]",
+			res: NewResource(),
+		},
+		"single value": {
+			dao: "[first:1]",
+			res: NewResourceFromMap(map[string]Quantity{"first": 1}),
+		},
+		"two values": {
+			dao: "[first:10 second:-10]",
+			res: NewResourceFromMap(map[string]Quantity{"first": 10, "second": -10}),
+		},
+	}
+	for name, test := range tests {
+		assert.Equal(t, test.res.DAOString(), test.dao, "unexpected dao string for %s", name)
+	}
+}
+
+func TestToString(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatal("String panic on nil resource")
+		}
+	}()
+	var res *Resource
+	// ignore nil check from IDE we really want to do this
+	resString := res.String()
+	assert.Equal(t, resString, "nil resource", "Unexpected string returned for nil resource")
+}
+
+func TestString(t *testing.T) {
+	testCases := []struct {
+		name           string
+		input          Quantity
+		expectedResult string
+	}{
+		{"Negative quantity", -1, "-1"},
+		{"Zero quantity", 0, "0"},
+		{"Positive quantity", 18, "18"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expectedResult, tc.input.string())
+		})
+	}
+}
+
+func TestToConf(t *testing.T) {
+	resourceMap := map[string]string{"memory": "50", "vcores": "33"}
+	resource, err := NewResourceFromConf(resourceMap)
+	assert.NilError(t, err)
+	zeroResourceMap := map[string]string{"memory": "0", "vcores": "0"}
+	zeroResource, err := NewResourceFromConf(zeroResourceMap)
+	assert.NilError(t, err)
+
+	testCases := []struct {
+		name           string
+		input          *Resource
+		expectedResult map[string]string
+	}{
+		{"Zero resource", zeroResource, zeroResourceMap},
+		{"Resources populated", resource, resourceMap},
+		{"Empty resource", NewResource(), map[string]string{}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.DeepEqual(t, tc.input.ToConf(), tc.expectedResult)
+		})
+	}
+}
+
+func TestHasNegativeValue(t *testing.T) {
+	zeroResource, err := NewResourceFromConf(map[string]string{"memory": "0", "vcores": "0"})
+	assert.NilError(t, err)
+	positiveResource, err := NewResourceFromConf(map[string]string{"memory": "10", "vcores": "20"})
+	assert.NilError(t, err)
+	negativeResource, err := NewResourceFromConf(map[string]string{"memory": "-10", "vcores": "20"})
+	assert.NilError(t, err)
+
+	testCases := []struct {
+		name           string
+		input          *Resource
+		expectedResult bool
+	}{
+		{"Zero resource", zeroResource, false},
+		{"Only positive values", positiveResource, false},
+		{"Empty resource", NewResource(), false},
+		{"Negative values", negativeResource, true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.input.HasNegativeValue(), tc.expectedResult)
+		})
+	}
 }

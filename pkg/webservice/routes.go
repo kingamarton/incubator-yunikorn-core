@@ -15,6 +15,7 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 */
+
 package webservice
 
 import (
@@ -24,131 +25,173 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-type Route struct {
+type route struct {
 	Name        string
 	Method      string
 	Pattern     string
 	HandlerFunc http.HandlerFunc
 }
 
-type Routes []Route
+type routes []route
 
-var routes = Routes{
+var webRoutes = routes{
 	// endpoints to retrieve general scheduler info
-	Route{
+	route{
 		"Scheduler",
 		"GET",
 		"/ws/v1/queues",
-		GetQueueInfo,
+		getQueueInfo,
 	},
-	Route{
+	route{
 		"Cluster",
 		"GET",
 		"/ws/v1/clusters",
-		GetClusterInfo,
+		getClusterInfo,
 	},
-	Route{
+	route{
+		"Cluster",
+		"GET",
+		"/ws/v1/clusters/utilization",
+		getClusterUtilization,
+	},
+	route{
 		"Scheduler",
 		"GET",
 		"/ws/v1/apps",
-		GetApplicationsInfo,
+		getApplicationsInfo,
 	},
-	Route{
+	route{
 		"Scheduler",
 		"GET",
 		"/ws/v1/nodes",
-		GetNodesInfo,
+		getNodesInfo,
+	},
+	route{
+		"Scheduler",
+		"GET",
+		"/ws/v1/nodes/utilization",
+		getNodesUtilization,
 	},
 
 	// endpoint to retrieve goroutines info
-	Route{
+	route{
 		"Scheduler",
 		"GET",
 		"/ws/v1/stack",
-		GetStackInfo,
+		getStackInfo,
 	},
 
 	// endpoint to retrieve server metrics
-	Route{
+	route{
 		"Scheduler",
 		"GET",
 		"/ws/v1/metrics",
 		promhttp.Handler().ServeHTTP,
 	},
 
+	// endpoint to retrieve the current conf
+	route{
+		"Scheduler",
+		"GET",
+		"/ws/v1/config",
+		getClusterConfig,
+	},
+
+	// endpoint to update the current conf
+	route{
+		"Scheduler",
+		"PUT",
+		"/ws/v1/config",
+		updateConfig,
+	},
+
 	// endpoint to validate conf
-	Route{
+	route{
 		"Scheduler",
 		"POST",
 		"/ws/v1/validate-conf",
-		ValidateConf,
+		validateConf,
+	},
+
+	// endpoint to retrieve historical data
+	route{
+		"Scheduler",
+		"GET",
+		"/ws/v1/history/apps",
+		getApplicationHistory,
+	},
+	route{
+		"Scheduler",
+		"GET",
+		"/ws/v1/history/containers",
+		getContainerHistory,
 	},
 
 	// endpoint to retrieve CPU, Memory profiling data,
 	// this works with pprof tool. By default, pprof endpoints
 	// are only registered to http.DefaultServeMux. Here, we
 	// need to explicitly register all handlers.
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/",
 		HandlerFunc: pprof.Index,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/heap",
 		HandlerFunc: pprof.Index,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/threadcreate",
 		HandlerFunc: pprof.Index,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/goroutine",
 		HandlerFunc: pprof.Index,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/allocs",
 		HandlerFunc: pprof.Index,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/block",
 		HandlerFunc: pprof.Index,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/mutex",
 		HandlerFunc: pprof.Index,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/cmdline",
 		HandlerFunc: pprof.Cmdline,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/profile",
 		HandlerFunc: pprof.Profile,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/symbol",
 		HandlerFunc: pprof.Symbol,
 	},
-	Route{
+	route{
 		Name:        "System",
 		Method:      "GET",
 		Pattern:     "/debug/pprof/trace",

@@ -15,11 +15,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Check if this GO tools version used is at least the version of go specified in
+# the go.mod file. The version in go.mod should be in sync with other repos.
+GO_VERSION := $(shell go version | awk '{print substr($$3, 3, 10)}')
+MOD_VERSION := $(shell awk '/^go/ {print $$2}' go.mod)
 
-# Check if this is at least GO 1.11 for Go Modules
-GO_VERSION := $(shell go version | awk '$$3 ~ /go1.(10|0-9])/ {print $$3}')
-ifdef GO_VERSION
-$(error Build requires go 1.11 or later)
+GM := $(word 1,$(subst ., ,$(GO_VERSION)))
+MM := $(word 1,$(subst ., ,$(MOD_VERSION)))
+FAIL := $(shell if [[ $(GM) -lt $(MM) ]]; then echo MAJOR; fi)
+ifdef FAIL
+$(error Build should be run with at least go $(MOD_VERSION) or later, found $(GO_VERSION))
+endif
+GM := $(word 2,$(subst ., ,$(GO_VERSION)))
+MM := $(word 2,$(subst ., ,$(MOD_VERSION)))
+FAIL := $(shell if [[ $(GM) -lt $(MM) ]]; then echo MINOR; fi)
+ifdef FAIL
+$(error Build should be run with at least go $(MOD_VERSION) or later, found $(GO_VERSION))
 endif
 
 # Make sure we are in the same directory as the Makefile
@@ -51,13 +62,13 @@ lint:
 			exit 1; \
 		fi \
 	fi ; \
-	headSHA=$$(git rev-parse --short=12 HEAD) ; \
+	headSHA=$$(git rev-parse --short=12 origin/HEAD) ; \
 	$${lintBin} run --new-from-rev=$${headSHA}
 
-.PHONY: common-check-license
-common-check-license:
+.PHONY: license-check
+license-check:
 	@echo "checking license header"
-	@licRes=$$(grep -Lr --include=*.{go,sh} "Licensed to the Apache Software Foundation" .) ; \
+	@licRes=$$(grep -Lr --include=*.{go,sh,md,yaml,yml,mod} "Licensed to the Apache Software Foundation" .) ; \
 	if [ -n "$${licRes}" ]; then \
 		echo "following files have incorrect license header:\n$${licRes}" ; \
 		exit 1; \
@@ -76,13 +87,14 @@ build: commands
 
 # Run the tests after building
 .PHONY: test
-test:
+test: clean
 	@echo "running unit tests"
-	go test ./... -cover $(RACE) -tags deadlock
+	go test ./... $(RACE) -tags deadlock -coverprofile=coverage.txt -covermode=atomic
 	go vet $(REPO)...
 
 # Simple clean of generated files only (no local cleanup).
 .PHONY: clean
 clean:
-	go clean -r -x ./...
+	@echo "cleaning up caches and output"
+	go clean -cache -testcache -r -x ./... 2>&1 >/dev/null
 	-rm -rf _output

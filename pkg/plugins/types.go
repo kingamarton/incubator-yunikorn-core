@@ -18,12 +18,20 @@
 
 package plugins
 
-import "github.com/apache/incubator-yunikorn-scheduler-interface/lib/go/si"
+import (
+	"sync"
+
+	"github.com/apache/incubator-yunikorn-scheduler-interface/lib/go/si"
+)
 
 type SchedulerPlugins struct {
-	predicatesPlugin PredicatesPlugin
-	volumesPlugin    VolumesPlugin
-	reconcilePlugin  ReconcilePlugin
+	predicatesPlugin       PredicatesPlugin
+	reconcilePlugin        ReconcilePlugin
+	eventPlugin            EventPlugin
+	schedulingStateUpdater ContainerSchedulingStateUpdater
+	configPlugin           ConfigurationPlugin
+
+	sync.RWMutex
 }
 
 // RM side implements this API when it can provide plugin for predicates.
@@ -33,15 +41,29 @@ type PredicatesPlugin interface {
 	Predicates(args *si.PredicatesArgs) error
 }
 
-// RM side implements this API when it can provide plugin for volumes.
-type VolumesPlugin interface {
-	// Bind the volumes after allocation has been confirmed
-	//VolumesBind(allocationId string, node string) error
-}
-
 type ReconcilePlugin interface {
 	// RM side implements this API when it can provide plugin for reconciling
 	// Re-sync scheduler cache can sync some in-cache (yunikorn-core side) state changes
 	// to scheduler cache (shim-side), such as assumed allocations.
 	ReSyncSchedulerCache(args *si.ReSyncSchedulerCacheArgs) error
+}
+
+type EventPlugin interface {
+	// This plugin is responsible for transmitting events to the shim side.
+	// Events can be further exposed from the shim.
+	SendEvent(events []*si.EventRecord)
+}
+
+// Scheduler core can update container scheduling state to the RM,
+// the shim side can determine what to do incorporate with the scheduling state
+type ContainerSchedulingStateUpdater interface {
+	// update container scheduling state to the shim side
+	// this might be called even the container scheduling state is unchanged
+	// the shim side cannot assume to only receive updates on state changes
+	// the shim side implementation must be thread safe
+	Update(request *si.UpdateContainerSchedulingStateRequest)
+}
+
+type ConfigurationPlugin interface {
+	UpdateConfiguration(args *si.UpdateConfigurationRequest) *si.UpdateConfigurationResponse
 }

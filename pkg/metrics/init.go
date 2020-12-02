@@ -28,6 +28,8 @@ const (
 	Namespace = "yunikorn"
 	// SchedulerSubsystem - subsystem name used by scheduler
 	SchedulerSubsystem = "scheduler"
+	// EventSubsystem - subsystem name used by event cache
+	EventSubsystem = "event"
 	// replacement of invalid byte for prometheus metric names
 	MetricNameInvalidByteReplacement = '_'
 )
@@ -38,6 +40,7 @@ var m *Metrics
 type Metrics struct {
 	scheduler CoreSchedulerMetrics
 	queues    map[string]CoreQueueMetrics
+	event     CoreEventMetrics
 	lock      sync.RWMutex
 }
 
@@ -54,6 +57,7 @@ type CoreSchedulerMetrics interface {
 	// Metrics Ops related to ScheduledAllocationSuccesses
 	IncAllocatedContainer()
 	AddAllocatedContainers(value int)
+	getAllocatedContainers() (int, error)
 
 	// Metrics Ops related to ScheduledAllocationFailures
 	IncRejectedContainer()
@@ -81,6 +85,7 @@ type CoreSchedulerMetrics interface {
 	DecTotalApplicationsRunning()
 	SubTotalApplicationsRunning(value int)
 	SetTotalApplicationsRunning(value int)
+	getTotalApplicationsRunning() (int, error)
 
 	// Metrics Ops related to TotalApplicationsCompleted
 	IncTotalApplicationsCompleted()
@@ -107,6 +112,18 @@ type CoreSchedulerMetrics interface {
 	//latency change
 	ObserveSchedulingLatency(start time.Time)
 	ObserveNodeSortingLatency(start time.Time)
+	ObserveAppSortingLatency(start time.Time)
+	ObserveQueueSortingLatency(start time.Time)
+}
+
+type CoreEventMetrics interface {
+	IncEventsCreated()
+	IncEventsChanneled()
+	IncEventsNotChanneled()
+	IncEventsProcessed()
+	IncEventsStored()
+	IncEventsNotStored()
+	AddEventsCollected(collectedEvents int)
 }
 
 func init() {
@@ -114,6 +131,7 @@ func init() {
 		m = &Metrics{
 			scheduler: initSchedulerMetrics(),
 			queues:    make(map[string]CoreQueueMetrics),
+			event:     initEventMetrics(),
 			lock:      sync.RWMutex{},
 		}
 	})
@@ -132,6 +150,10 @@ func GetQueueMetrics(name string) CoreQueueMetrics {
 	queueMetrics := forQueue(name)
 	m.queues[name] = queueMetrics
 	return queueMetrics
+}
+
+func GetEventMetrics() CoreEventMetrics {
+	return m.event
 }
 
 // Format metric name based on the definition of metric name in prometheus, as per

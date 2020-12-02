@@ -19,26 +19,32 @@
 package entrypoint
 
 import (
-	"github.com/apache/incubator-yunikorn-core/pkg/cache"
+	"github.com/apache/incubator-yunikorn-core/pkg/events"
 	"github.com/apache/incubator-yunikorn-core/pkg/handler"
 	"github.com/apache/incubator-yunikorn-core/pkg/log"
+	"github.com/apache/incubator-yunikorn-core/pkg/metrics"
+	"github.com/apache/incubator-yunikorn-core/pkg/metrics/history"
 	"github.com/apache/incubator-yunikorn-core/pkg/rmproxy"
 	"github.com/apache/incubator-yunikorn-core/pkg/scheduler"
 	"github.com/apache/incubator-yunikorn-core/pkg/webservice"
 )
 
 // options used to control how services are started
-type StartupOptions struct {
+type startupOptions struct {
 	manualScheduleFlag bool
 	startWebAppFlag    bool
+	metricsHistorySize int
+	eventCacheEnabled  bool
 }
 
 func StartAllServices() *ServiceContext {
 	log.Logger().Info("ServiceContext start all services")
 	return startAllServicesWithParameters(
-		StartupOptions{
+		startupOptions{
 			manualScheduleFlag: false,
 			startWebAppFlag:    true,
+			metricsHistorySize: 1440,
+			eventCacheEnabled:  false,
 		})
 }
 
@@ -46,38 +52,59 @@ func StartAllServices() *ServiceContext {
 func StartAllServicesWithManualScheduler() *ServiceContext {
 	log.Logger().Info("ServiceContext start all services (manual scheduler)")
 	return startAllServicesWithParameters(
-		StartupOptions{
+		startupOptions{
 			manualScheduleFlag: true,
 			startWebAppFlag:    false,
+			metricsHistorySize: 0,
+			eventCacheEnabled:  false,
 		})
 }
 
-func startAllServicesWithParameters(opts StartupOptions) *ServiceContext {
-	cache := cache.NewClusterInfo()
-	scheduler := scheduler.NewScheduler(cache)
+func startAllServicesWithParameters(opts startupOptions) *ServiceContext {
+	var eventCache *events.EventCache
+	var eventPublisher events.EventPublisher
+	if opts.eventCacheEnabled {
+		log.Logger().Info("creating event cache")
+		events.CreateAndSetEventCache()
+		eventCache = events.GetEventCache()
+		eventPublisher = events.CreateShimPublisher(eventCache.Store)
+	}
+
+	sched := scheduler.NewScheduler()
 	proxy := rmproxy.NewRMProxy()
 
 	eventHandler := handler.EventHandlers{
-		CacheEventHandler:     cache,
-		SchedulerEventHandler: scheduler,
+		SchedulerEventHandler: sched,
 		RMProxyEventHandler:   proxy,
 	}
 
 	// start services
 	log.Logger().Info("ServiceContext start scheduling services")
-	cache.StartService(eventHandler)
-	scheduler.StartService(eventHandler, opts.manualScheduleFlag)
+	sched.StartService(eventHandler, opts.manualScheduleFlag)
 	proxy.StartService(eventHandler)
+	if opts.eventCacheEnabled && eventCache != nil {
+		eventCache.StartService()
+		if eventPublisher != nil {
+			eventPublisher.StartService()
+		}
+	}
 
 	context := &ServiceContext{
 		RMProxy:   proxy,
-		Cache:     cache,
-		Scheduler: scheduler,
+		Scheduler: sched,
+	}
+
+	var imHistory *history.InternalMetricsHistory
+	if opts.metricsHistorySize != 0 {
+		log.Logger().Info("creating InternalMetricsHistory")
+		imHistory = history.NewInternalMetricsHistory(opts.metricsHistorySize)
+		metricsCollector := metrics.NewInternalMetricsCollector(imHistory)
+		metricsCollector.StartService()
 	}
 
 	if opts.startWebAppFlag {
 		log.Logger().Info("ServiceContext start web application service")
-		webapp := webservice.NewWebApp(cache)
+		webapp := webservice.NewWebApp(sched.GetClusterContext(), imHistory)
 		webapp.StartWebApp()
 		context.WebApp = webapp
 	}

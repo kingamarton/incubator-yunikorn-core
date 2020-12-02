@@ -35,7 +35,7 @@ import (
 // set of scheduler resources.
 type SchedulerConfig struct {
 	Partitions []PartitionConfig
-	Checksum   []byte
+	Checksum   [32]byte `yaml:"-" json:"-"`
 }
 
 // The partition object for each partition:
@@ -143,7 +143,7 @@ type LoadSchedulerConfigFunc func(policyGroup string) (*SchedulerConfig, error)
 // Visible by tests
 func LoadSchedulerConfigFromByteArray(content []byte) (*SchedulerConfig, error) {
 	conf := &SchedulerConfig{}
-	err := yaml.Unmarshal(content, conf)
+	err := yaml.UnmarshalStrict(content, conf)
 	if err != nil {
 		log.Logger().Error("failed to parse queue configuration",
 			zap.Error(err))
@@ -157,18 +157,17 @@ func LoadSchedulerConfigFromByteArray(content []byte) (*SchedulerConfig, error) 
 		return nil, err
 	}
 
-	h := sha256.New()
-	conf.Checksum = h.Sum(content)
+	// Create a sha256 checksum for this validated config
+	conf.Checksum = sha256.Sum256(content)
 	return conf, err
 }
 
 func loadSchedulerConfigFromFile(policyGroup string) (*SchedulerConfig, error) {
 	filePath := resolveConfigurationFileFunc(policyGroup)
-	log.Logger().Debug("loading configuration",
-		zap.String("configurationPath", filePath))
 	buf, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		log.Logger().Error("failed to load configuration",
+			zap.String("configFilePath", filePath),
 			zap.Error(err))
 		return nil, err
 	}

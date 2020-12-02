@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"go.uber.org/zap"
 
 	"github.com/apache/incubator-yunikorn-core/pkg/log"
@@ -59,6 +60,8 @@ type SchedulerMetrics struct {
 	nodesResourceUsages        map[string]*prometheus.GaugeVec
 	schedulingLatency          prometheus.Histogram
 	nodeSortingLatency         prometheus.Histogram
+	appSortingLatency          prometheus.Histogram
+	queueSortingLatency        prometheus.Histogram
 	lock                       sync.RWMutex
 }
 
@@ -146,11 +149,36 @@ func initSchedulerMetrics() *SchedulerMetrics {
 			Buckets:   prometheus.ExponentialBuckets(0.0001, 10, 6), //start from 0.1ms
 		},
 	)
+
+	// latency for all queues together
+	s.queueSortingLatency = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Subsystem: SchedulerSubsystem,
+			Name:      "queues_sorting_latency_seconds",
+			Help:      "queues sorting latency in seconds",
+			Buckets:   prometheus.ExponentialBuckets(0.0001, 10, 6), //start from 0.1ms
+		},
+	)
+
+	// latency for all apps together
+	s.appSortingLatency = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Subsystem: SchedulerSubsystem,
+			Name:      "app_sorting_latency_seconds",
+			Help:      "app sorting latency in seconds",
+			Buckets:   prometheus.ExponentialBuckets(0.0001, 10, 6), //start from 0.1ms
+		},
+	)
+
 	var metricsList = []prometheus.Collector{
 		s.allocations,
 		s.scheduleApplications,
 		s.schedulingLatency,
 		s.nodeSortingLatency,
+		s.queueSortingLatency,
+		s.appSortingLatency,
 		s.totalApplicationsRunning,
 		s.totalApplicationsCompleted,
 		s.activeNodes,
@@ -190,6 +218,14 @@ func (m *SchedulerMetrics) ObserveNodeSortingLatency(start time.Time) {
 	m.nodeSortingLatency.Observe(SinceInSeconds(start))
 }
 
+func (m *SchedulerMetrics) ObserveAppSortingLatency(start time.Time) {
+	m.appSortingLatency.Observe(SinceInSeconds(start))
+}
+
+func (m *SchedulerMetrics) ObserveQueueSortingLatency(start time.Time) {
+	m.queueSortingLatency.Observe(SinceInSeconds(start))
+}
+
 // Define and implement all the metrics ops for Prometheus.
 // Metrics Ops related to allocationScheduleSuccesses
 func (m *SchedulerMetrics) IncAllocatedContainer() {
@@ -198,6 +234,15 @@ func (m *SchedulerMetrics) IncAllocatedContainer() {
 
 func (m *SchedulerMetrics) AddAllocatedContainers(value int) {
 	m.allocatedContainers.Add(float64(value))
+}
+
+func (m *SchedulerMetrics) getAllocatedContainers() (int, error) {
+	metricDto := &dto.Metric{}
+	err := m.allocatedContainers.Write(metricDto)
+	if err == nil {
+		return int(*metricDto.Counter.Value), nil
+	}
+	return -1, err
 }
 
 func (m *SchedulerMetrics) IncReleasedContainer() {
@@ -263,6 +308,15 @@ func (m *SchedulerMetrics) SubTotalApplicationsRunning(value int) {
 
 func (m *SchedulerMetrics) SetTotalApplicationsRunning(value int) {
 	m.totalApplicationsRunning.Set(float64(value))
+}
+
+func (m *SchedulerMetrics) getTotalApplicationsRunning() (int, error) {
+	metricDto := &dto.Metric{}
+	err := m.totalApplicationsRunning.Write(metricDto)
+	if err == nil {
+		return int(*metricDto.Gauge.Value), nil
+	}
+	return -1, err
 }
 
 // Metrics Ops related to totalApplicationsCompleted

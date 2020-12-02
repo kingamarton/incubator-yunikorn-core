@@ -21,8 +21,10 @@ package placement
 import (
 	"testing"
 
-	"github.com/apache/incubator-yunikorn-core/pkg/cache"
+	"gotest.tools/assert"
+
 	"github.com/apache/incubator-yunikorn-core/pkg/common/configs"
+	"github.com/apache/incubator-yunikorn-core/pkg/scheduler/objects"
 )
 
 func TestNewRule(t *testing.T) {
@@ -58,9 +60,7 @@ func TestPlaceApp(t *testing.T) {
 		Name: "test",
 	}
 	nr, err := newRule(conf)
-	if err != nil {
-		t.Fatal("unexpected rule initialisation error")
-	}
+	assert.NilError(t, err, "unexpected rule initialisation error")
 	// place application that should fail
 	_, err = nr.placeApplication(nil, nil)
 	if err == nil {
@@ -68,17 +68,17 @@ func TestPlaceApp(t *testing.T) {
 	}
 	var queue string
 	// place application that should not fail and return "test"
-	queue, err = nr.placeApplication(&cache.ApplicationInfo{}, nil)
+	queue, err = nr.placeApplication(&objects.Application{}, nil)
 	if err != nil || queue != "test" {
 		t.Errorf("test rule place application did not fail, err: %v, ", err)
 	}
 	// place application that should not fail and return the queue in the object
-	queue, err = nr.placeApplication(&cache.ApplicationInfo{QueueName: "passedin"}, nil)
+	queue, err = nr.placeApplication(&objects.Application{QueueName: "passedin"}, nil)
 	if err != nil || queue != "passedin" {
 		t.Errorf("test rule place application did not fail, err: %v, ", err)
 	}
 	// place application that should not fail and return the queue in the object
-	queue, err = nr.placeApplication(&cache.ApplicationInfo{QueueName: "user.name"}, nil)
+	queue, err = nr.placeApplication(&objects.Application{QueueName: "user.name"}, nil)
 	if err != nil || queue != "user_dot_name" {
 		t.Errorf("test rule place application did not fail, err: %v, ", err)
 	}
@@ -91,7 +91,7 @@ func TestReplaceDot(t *testing.T) {
 	}
 	name = replaceDot("name...name")
 	if name != "name_dot__dot__dot_name" {
-		t.Errorf("replace consequtive dots failed, name: %s, ", name)
+		t.Errorf("replace consecutive dots failed, name: %s, ", name)
 	}
 	name = replaceDot("name.name.name")
 	if name != "name_dot_name_dot_name" {
@@ -101,8 +101,4 @@ func TestReplaceDot(t *testing.T) {
 	if name != "_dot_name_dot_" {
 		t.Errorf("replace start or end dots failed, name: %s, ", name)
 	}
-}
-
-func CreatePartitionInfo(data []byte) (*cache.PartitionInfo, error) {
-	return cache.CreatePartitionInfo(data)
 }

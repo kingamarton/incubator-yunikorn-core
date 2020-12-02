@@ -15,6 +15,7 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 */
+
 package webservice
 
 import (
@@ -27,36 +28,34 @@ import (
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 
-	"github.com/apache/incubator-yunikorn-core/pkg/cache"
 	"github.com/apache/incubator-yunikorn-core/pkg/log"
+	"github.com/apache/incubator-yunikorn-core/pkg/metrics/history"
+	"github.com/apache/incubator-yunikorn-core/pkg/scheduler"
 )
 
-var gClusterInfo *cache.ClusterInfo
+var imHistory *history.InternalMetricsHistory
+var lock sync.RWMutex
+var schedulerContext *scheduler.ClusterContext
 
 type WebService struct {
-	httpServer  *http.Server
-	clusterInfo *cache.ClusterInfo
-	lock        sync.RWMutex
+	httpServer *http.Server
 }
 
-func NewRouter() *mux.Router {
+func newRouter() *mux.Router {
 	router := mux.NewRouter().StrictSlash(true)
-	for _, route := range routes {
-		var handler http.Handler
-
-		handler = route.HandlerFunc
-		handler = Logger(handler, route.Name)
+	for _, webRoute := range webRoutes {
+		handler := loggingHandler(webRoute.HandlerFunc, webRoute.Name)
 
 		router.
-			Methods(route.Method).
-			Path(route.Pattern).
-			Name(route.Name).
+			Methods(webRoute.Method).
+			Path(webRoute.Pattern).
+			Name(webRoute.Name).
 			Handler(handler)
 	}
 	return router
 }
 
-func Logger(inner http.Handler, name string) http.Handler {
+func loggingHandler(inner http.Handler, name string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -69,7 +68,7 @@ func Logger(inner http.Handler, name string) http.Handler {
 
 // TODO we need the port to be configurable
 func (m *WebService) StartWebApp() {
-	router := NewRouter()
+	router := newRouter()
 	m.httpServer = &http.Server{Addr: ":9080", Handler: router}
 
 	log.Logger().Info("web-app started", zap.Int("port", 9080))
@@ -82,9 +81,10 @@ func (m *WebService) StartWebApp() {
 	}()
 }
 
-func NewWebApp(clusterInfo *cache.ClusterInfo) *WebService {
+func NewWebApp(context *scheduler.ClusterContext, internalMetrics *history.InternalMetricsHistory) *WebService {
 	m := &WebService{}
-	gClusterInfo = clusterInfo
+	schedulerContext = context
+	imHistory = internalMetrics
 	return m
 }
 
